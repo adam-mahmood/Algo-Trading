@@ -37,6 +37,30 @@ namespace AlgoTrading.cTrader
         [Parameter("Recent Window (bars)", DefaultValue = 50)]
         public int RecentWindow { get; set; }
 
+        [Parameter("Extreme Proximity (pips)", DefaultValue = 1.5)]
+        public double ExtremeProximityPips { get; set; }
+
+        [Parameter("Min Confluence (extremes hit)", DefaultValue = 2)]
+        public int MinConfluence { get; set; }
+
+        [Parameter("ATR Period", DefaultValue = 14)]
+        public int AtrPeriod { get; set; }
+
+        [Parameter("Min ATR (pips)", DefaultValue = 0.4)]
+        public double MinAtrPips { get; set; }
+
+        [Parameter("Max ATR (pips)", DefaultValue = 2.5)]
+        public double MaxAtrPips { get; set; }
+
+        [Parameter("Min Wick:Body Ratio", DefaultValue = 1.5)]
+        public double WickToBodyRatio { get; set; }
+
+        [Parameter("Close Off Extreme (pips)", DefaultValue = 0.1)]
+        public double CloseOffExtremePips { get; set; }
+
+        [Parameter("Min Minutes Between Trades", DefaultValue = 60)]
+        public int MinMinutesBetweenTrades { get; set; }
+
         private DateTime _currentDay;
         private int _tradesToday;
         private double _dailyHigh;
@@ -45,6 +69,8 @@ namespace AlgoTrading.cTrader
         private double _weeklyLow;
         private readonly Queue<double> _recentPrices = new();
         private Symbol _symbol;
+        private DateTime _lastTradeTime;
+        private AverageTrueRange _atr;
 
         protected override void OnStart()
         {
@@ -65,6 +91,8 @@ namespace AlgoTrading.cTrader
             _tradesToday = 0;
             InitializeLevelsFromHistory();
             PrimeRecentPrices();
+            _lastTradeTime = DateTime.MinValue;
+            _atr = Indicators.AverageTrueRange(AtrPeriod, MovingAverageType.Exponential);
         }
 
         protected override void OnBar()
@@ -83,6 +111,9 @@ namespace AlgoTrading.cTrader
                 return;
 
             if (!InSession(Server.Time))
+                return;
+
+            if (MinutesSinceLastTrade() < MinMinutesBetweenTrades)
                 return;
 
             var direction = EvaluateSignal(bar);
@@ -105,6 +136,7 @@ namespace AlgoTrading.cTrader
             if (result?.IsSuccessful == true)
             {
                 _tradesToday++;
+                _lastTradeTime = Server.Time;
             }
             else if (result != null)
             {
@@ -125,20 +157,69 @@ namespace AlgoTrading.cTrader
             var recentHigh = _recentPrices.Count > 0 ? _recentPrices.Max() : price;
             var recentLow = _recentPrices.Count > 0 ? _recentPrices.Min() : price;
 
-            bool nearDailyHigh = price >= _dailyHigh * 0.999;
-            bool nearDailyLow = price <= _dailyLow * 1.001;
-            bool nearWeeklyHigh = price >= _weeklyHigh * 0.999;
-            bool nearWeeklyLow = price <= _weeklyLow * 1.001;
-            bool nearRecentHigh = price >= recentHigh * 0.999;
-            bool nearRecentLow = price <= recentLow * 1.001;
+            var atrPips = _atr.Result.LastValue / _symbol.PipSize;
+            if (atrPips < MinAtrPips || atrPips > MaxAtrPips)
+                return TradeDirection.Flat;
 
-            if (nearDailyHigh || nearWeeklyHigh || nearRecentHigh)
+            var tolerance = ExtremeProximityPips * _symbol.PipSize;
+
+            bool nearDailyHigh = _dailyHigh != double.MinValue && price <= _dailyHigh && (_dailyHigh - price) <= tolerance;
+            bool nearDailyLow = _dailyLow != double.MaxValue && price >= _dailyLow && (price - _dailyLow) <= tolerance;
+            bool nearWeeklyHigh = _weeklyHigh != double.MinValue && price <= _weeklyHigh && (_weeklyHigh - price) <= tolerance;
+            bool nearWeeklyLow = _weeklyLow != double.MaxValue && price >= _weeklyLow && (price - _weeklyLow) <= tolerance;
+            bool nearRecentHigh = price <= recentHigh && (recentHigh - price) <= tolerance;
+            bool nearRecentLow = price >= recentLow && (price - recentLow) <= tolerance;
+
+            int shortConfluence = CountConfluence(nearDailyHigh, nearWeeklyHigh, nearRecentHigh);
+            int longConfluence = CountConfluence(nearDailyLow, nearWeeklyLow, nearRecentLow);
+
+            var upperWick = bar.High - Math.Max(bar.Open, bar.Close);
+            var lowerWick = Math.Min(bar.Open, bar.Close) - bar.Low;
+            var body = Math.Abs(bar.Close - bar.Open);
+            var wickRequirement = body * WickToBodyRatio;
+            var closeOffHigh = bar.High - bar.Close;
+            var closeOffLow = bar.Close - bar.Low;
+            var closeOffset = CloseOffExtremePips * _symbol.PipSize;
+
+            bool shortPattern =
+                shortConfluence >= MinConfluence &&
+                (bar.High - price) <= tolerance &&
+                upperWick >= wickRequirement &&
+                closeOffHigh >= closeOffset;
+
+            bool longPattern =
+                longConfluence >= MinConfluence &&
+                (price - bar.Low) <= tolerance &&
+                lowerWick >= wickRequirement &&
+                closeOffLow >= closeOffset;
+
+            if (shortPattern)
                 return TradeDirection.Short;
 
-            if (nearDailyLow || nearWeeklyLow || nearRecentLow)
+            if (longPattern)
                 return TradeDirection.Long;
 
             return TradeDirection.Flat;
+        }
+
+        private int MinutesSinceLastTrade()
+        {
+            if (_lastTradeTime == DateTime.MinValue)
+                return int.MaxValue;
+
+            return (int)(Server.Time - _lastTradeTime).TotalMinutes;
+        }
+
+        private int CountConfluence(params bool[] hits)
+        {
+            int count = 0;
+            foreach (var hit in hits)
+            {
+                if (hit)
+                    count++;
+            }
+
+            return count;
         }
 
         private void ResetDailyCounters(Bar bar)
@@ -216,7 +297,7 @@ namespace AlgoTrading.cTrader
         }
 
         private void PrimeRecentPrices()
-        {   
+        {
             if (Bars.Count == 0)
                 return;
 
