@@ -9,6 +9,7 @@ This file explains how to reuse `cTraderMicroScalperBot.cs` in another Git repos
 
 ## How to move the file into another repo
 1. Copy `cTraderMicroScalperBot.cs` (and this README if you want the notes) into the target repository. Keeping the `AlgoTrading.cTrader` namespace avoids class-name collisions.
+   - If you see build errors like **`Symbol`** or **`AverageTrueRange`** not found, ensure the project is being compiled inside cTrader Automate (which provides `cAlgo.API` and `cAlgo.API.Indicators`). Outside of Automate you’ll need stubs or a reference to the cTrader assemblies.
 2. If the destination repo has a different root namespace, either keep this namespace or adjust it consistently across the file.
 3. Open the repo in cTrader Automate (or drop the `.cs` file into **My Documents/cAlgo/Sources/Robots**). cTrader will compile it as a robot automatically.
 4. Attach the bot to the symbol/timeframe you plan to trade. If the chart symbol differs from the `Symbol` parameter, the bot will log which symbol is used for orders.

@@ -3,11 +3,13 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using cAlgo.API;
+using cAlgo.API.Indicators;
 
 // cAlgo/cTrader Automate example micro-scalper targeting ~0.5 pip take-profit.
 // Replace parameters (volume, symbol, sessions) and backtest thoroughly before live use.
 // The strategy looks for mean-reversion entries near intraday/weekly extremes and
 // short-term support/resistance, while enforcing a three-trades-per-day limit.
+
 namespace AlgoTrading.cTrader
 {
     [Robot(TimeZone = TimeZones.UTC, AccessRights = AccessRights.None)]
@@ -68,9 +70,9 @@ namespace AlgoTrading.cTrader
         private double _weeklyHigh;
         private double _weeklyLow;
         private readonly Queue<double> _recentPrices = new();
-        private Symbol _symbol;
+        private cAlgo.API.Symbol _symbol;
         private DateTime _lastTradeTime;
-        private AverageTrueRange _atr;
+        private cAlgo.API.Indicators.AverageTrueRange _atr;
 
         protected override void OnStart()
         {
