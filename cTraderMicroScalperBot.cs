@@ -8,7 +8,6 @@ using cAlgo.API;
 // Replace parameters (volume, symbol, sessions) and backtest thoroughly before live use.
 // The strategy looks for mean-reversion entries near intraday/weekly extremes and
 // short-term support/resistance, while enforcing a three-trades-per-day limit.
-
 namespace AlgoTrading.cTrader
 {
     [Robot(TimeZone = TimeZones.UTC, AccessRights = AccessRights.None)]
@@ -217,7 +216,7 @@ namespace AlgoTrading.cTrader
         }
 
         private void PrimeRecentPrices()
-        {
+        {   
             if (Bars.Count == 0)
                 return;
 
